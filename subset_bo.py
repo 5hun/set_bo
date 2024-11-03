@@ -2,9 +2,7 @@ import math
 import torch
 import gpytorch
 import botorch
-from gpytorch.constraints.constraints import GreaterThan, Positive, Interval
-from gpytorch.kernels import MaternKernel, RBFKernel, ScaleKernel
-from gpytorch.priors.torch_priors import GammaPrior, LogNormalPrior
+from gpytorch.constraints.constraints import Positive, Interval
 from gpytorch.mlls import ExactMarginalLogLikelihood
 from botorch.models.transforms.outcome import Standardize
 from botorch.models import SingleTaskGP
@@ -14,9 +12,7 @@ from botorch.models.utils.gpytorch_modules import (
     get_matern_kernel_with_gamma_prior,
     get_covar_module_with_dim_scaled_prior,
 )
-from typing import Optional, Sequence
-from sklearn.metrics.pairwise import euclidean_distances
-import pulp
+from typing import Optional
 
 
 class SumKernel(gpytorch.kernels.Kernel):
@@ -539,37 +535,3 @@ def get_next_query_by_mo(
         cur_cand = next_cand
 
     return best, best_val
-
-
-def solve_by_mip(features: torch.Tensor, num_depot: int) -> tuple[float, list[int]]:
-    f_distmat = euclidean_distances(features)
-
-    model = pulp.LpProblem("facility_location", pulp.LpMinimize)
-    x = [
-        pulp.LpVariable(f"x_{i}", lowBound=0, upBound=1, cat=pulp.LpBinary)
-        for i in range(len(features))
-    ]
-    y = [
-        [
-            pulp.LpVariable(f"y_{i}_{j}", lowBound=0, upBound=1, cat=pulp.LpBinary)
-            for j in range(len(features))
-        ]
-        for i in range(len(features))
-    ]
-    model += pulp.lpSum([x[i] for i in range(len(features))]) <= num_depot
-    for i in range(len(features)):
-        model += pulp.lpSum([y[i][j] for j in range(len(features))]) == 1
-    for i in range(len(features)):
-        for j in range(len(features)):
-            model += y[i][j] <= x[j]
-    model += pulp.lpSum(
-        f_distmat[i, j] * y[i][j]
-        for i in range(len(features))
-        for j in range(len(features))
-    )
-    status = model.solve()
-    assert status == pulp.LpStatusOptimal
-    return (
-        model.objective.value(),
-        [i for i in range(len(features)) if x[i].value() == 1],
-    )
